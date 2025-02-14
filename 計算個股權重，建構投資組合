@@ -1,0 +1,101 @@
+# 2024-Fubon-Campus-Program
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+
+# 下載五檔股票的歷史數據
+# 1726 永記、2474 可成、3171 炎洲流通、4958 臻鼎、8103 瀚荃
+stocks = ['1726.TW', '2474.TW', '3171.TWO', '4958.TW', '8103.TW']
+stocks_2 = ['1726.TW', '2474.TW', '3171.TWO', '4958.TW', '8103.TW','^TWII']
+start_date = '2024-01-02'
+end_date = '2024-11-09'
+
+# 從 yfinance 下載股票調整後收盤價
+data = yf.download(stocks, start=start_date, end=end_date)['Adj Close']
+data_2 = yf.download(stocks_2, start=start_date, end=end_date)['Adj Close']
+
+# 計算日報酬率
+returns = data.pct_change(fill_method=None).dropna()
+returns_2 = data_2.pct_change(fill_method=None).dropna()
+
+# 計算期間大盤報酬率
+TWII_return = (data_2['^TWII'].loc['2024-11-08'] - data_2['^TWII'].loc['2024-01-02']) / data_2['^TWII'].loc['2024-01-02']
+print(f'大盤期間報酬率：{TWII_return * 100:.2f}%\n')
+
+# 取得市場指數資料的日期索引
+trading_days = data.index
+
+# 計算交易日數量
+num_trading_days = len(trading_days)
+
+print(f"期間內交易日數量: {num_trading_days}")
+
+# 計算每檔股票的年化平均報酬和共變異數矩陣
+mean_returns = returns.mean() * 252  # 年化
+mean_returns_2 = returns_2.mean() * 252  # 年化
+cov_matrix = returns.cov() * 252  # 年化共變異數矩陣
+cov_matrix_2 = returns_2.cov() * 252  # 年化共變異數矩陣
+
+# 計算夏普比率 Sharpe Ratio，假設無風險利率為 0.04
+risk_free_rate = 0.04
+def sharpe_ratio(weights, mean_returns, cov_matrix, risk_free_rate=0.04):
+    portfolio_return = np.sum(weights * mean_returns)
+    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    return -(portfolio_return - risk_free_rate) / portfolio_volatility  # 最小化負的夏普比率
+
+# 目標：最大化夏普比率；約束條件：權重總和為 1，且每個權重大於 0.1
+constraints = ({'type': 'eq', 'fun': lambda weights: np.sum(weights) - 1})  # 權重總和為 1
+bounds = [(0.1, 1) for _ in range(len(stocks))]  # 每檔股票的權重在 0.1 和 1 之間
+
+# 初始權重：均等分配
+initial_weights = [1.0 / len(stocks)] * len(stocks)
+
+# 使用最小化方法進行優化
+opt_result = minimize(sharpe_ratio, initial_weights, args=(mean_returns, cov_matrix), method='SLSQP', bounds=bounds, constraints=constraints)
+
+# 優化後的權重
+optimal_weights = opt_result.x
+
+
+# 顯示結果
+# 將優化後的權重格式化為四位小數，並轉換回浮點數
+print('最佳化權重：')
+formatted_optimal_weights = [float(f'{elem:.4f}') for elem in optimal_weights]
+for stock, weight in zip(stocks, formatted_optimal_weights):
+    print(f'{stock}: {weight * 100:.2f}%')
+print()
+print(f'預期投資組合報酬：{np.sum(optimal_weights * mean_returns) * 100:.2f}%')
+print(f'預期投資組合波動率：{np.sqrt(np.dot(optimal_weights.T, np.dot(cov_matrix, optimal_weights))):.4f}')
+print()
+# 顯示投資組合個股的年化平均報酬和共變異數矩陣
+print('投資組合個股年化平均報酬：')
+mean_returns_2_percent = mean_returns_2 * 100
+print(mean_returns_2_percent.round(2).astype(str) + '%')
+print()
+# print('股票共變異數矩陣（年化）：')
+# print(cov_matrix_2)
+
+# 繪製效率前緣
+# 生成 10000 個隨機投資組合，計算每個投資組合的報酬率和波動率，並繪製效率前緣
+num_portfolios = 10000  # 生成隨機投資組合的數量
+results = np.zeros((3, num_portfolios))  # 初始化結果矩陣
+
+for i in range(num_portfolios):
+    weights = np.random.random(len(stocks))
+    weights /= np.sum(weights)
+    portfolio_return = np.sum(weights * mean_returns)
+    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    results[0,i] = portfolio_return
+    results[1,i] = portfolio_volatility
+    results[2,i] = (portfolio_return - 0.04) / portfolio_volatility  # 夏普比率
+
+# 繪製圖表
+plt.figure(figsize=(10, 6), dpi=200)
+plt.scatter(results[1,:], results[0,:], c=results[2,:], cmap='viridis')
+plt.colorbar(label='Sharpe Ratio')
+plt.xlabel('Volatility')
+plt.ylabel('Return')
+plt.title('Fubon Group 3 Efficient Frontier')
+plt.show()
