@@ -1,0 +1,125 @@
+#  計算投組/個股投資期間共變異數
+covariances_with_twii = returns_2.cov()['^TWII']
+print('個股投資期間與大盤共變異數：')
+print(covariances_with_twii)
+print()
+
+#  計算投組/個股投資期間 beta
+beta_1726 = covariances_with_twii['1726.TW'] / covariances_with_twii['^TWII']
+beta_2474 = covariances_with_twii['2474.TW'] / covariances_with_twii['^TWII']
+beta_3171 = covariances_with_twii['3171.TWO'] / covariances_with_twii['^TWII']
+beta_4958 = covariances_with_twii['4958.TW'] / covariances_with_twii['^TWII']
+beta_8103 = covariances_with_twii['8103.TW'] / covariances_with_twii['^TWII']
+
+# 顯示個股投資期間 beta
+print('個股投資期間 beta:')
+print(f'1726 永記 beta: {beta_1726:.4f}')
+print(f'2474 可成 beta: {beta_2474:.4f}')
+print(f'3171 炎洲流通 beta: {beta_3171:.4f}')
+print(f'4958 臻鼎-KY beta: {beta_4958:.4f}')
+print(f'8103 瀚荃 beta: {beta_8103:.4f}')
+print()
+
+# 市場波動率
+TWII_volatility = data_2['^TWII'].pct_change(fill_method=None).dropna().std() * np.sqrt(252)
+
+#市場溢酬
+market_return_annualized = returns_2['^TWII'].mean() * 252  # 計算年化市場報酬
+market_premium = market_return_annualized - risk_free_rate
+
+# 顯示市場波動率與報酬
+print(f'年化大盤波動率：{TWII_volatility:.4f}')
+print('市場報酬：')
+print(f'期間市場報酬：{TWII_return * 100:.2f}%')
+print(f'年化市場報酬：{market_return_annualized * 100:.2f}%')
+print(f'年化市場溢酬：{market_premium * 100:.2f}%')
+print()
+
+# 計算投組期間和年化報酬和波動率
+
+returns =  returns.mean()*num_trading_days
+portfolio_return = np.sum(optimal_weights * returns)
+portfolio_return_annualized = np.sum(optimal_weights * mean_returns)
+portfolio_volatility = np.sqrt(np.dot(optimal_weights.T, np.dot(cov_matrix, weights)))
+print(f'投組期間報酬: {portfolio_return:.4f}')
+print(f'投組年化報酬: {portfolio_return_annualized * 100:.2f}%')
+print(f'投組年化波動率: {portfolio_volatility:.4f}')
+
+# 計算投組 beta
+portfolio_beta = np.sum(optimal_weights * [beta_1726, beta_2474, beta_3171, beta_4958, beta_8103])
+print(f'投組 beta: {portfolio_beta:.4f}')
+
+# 計算 Treynor Ratio
+treynor_ratio = (portfolio_return_annualized - 0.04) / portfolio_beta
+print(f'投組 Treynor Ratio: {treynor_ratio:.4f}')
+
+# 計算 Jensen's Alpha
+jensen_alpha = portfolio_return_annualized - (0.04 + portfolio_return_annualized * (TWII_return - 0.04))
+print(f'投組 Jensen\'s Alpha: {jensen_alpha:.4f}')
+
+
+# 計算 sharpe ratio
+portfolio_sharpe_ratio = (portfolio_return_annualized - 0.04) / portfolio_volatility
+benchmark_sharpe_ratio = (mean_returns_2['^TWII'] - 0.04) / TWII_volatility
+
+# 計算 m-squared
+m_squared = (portfolio_sharpe_ratio - benchmark_sharpe_ratio) * TWII_volatility
+
+# 顯示 sharpe ratio
+print(f'投組 sharpe ratio: {portfolio_sharpe_ratio:.4f}')
+print(f'市場 sharpe ratio: {benchmark_sharpe_ratio:.4f}')
+print(f'M-squared: {m_squared:.4f}')
+
+'''
+#  匯出至excel
+from google.colab import auth
+auth.authenticate_user()
+
+import gspread
+from google.auth import default
+creds, _ = default()
+
+gc = gspread.authorize(creds)
+
+# AFTER your code that generates the values, create the DataFrame:
+data = {
+    '項目': ['永記beta', '可成beta', '炎洲流通beta', '臻鼎-KYbeta', '瀚荃beta', '大盤波動率', '市場溢酬', '投組beta', 'Treynor Ratio', "Jensen's Alpha", 'sharpe ratio', 'benchmark sharpe ratio', 'M-squared'],
+    '數值': [0.2340, 0.3968, 0.4284, 0.7440, 0.6334, 0.2163, 0.2604, 0.4389, 0.4742, 0.0938, 0.8845, 1.4327, -0.1186
+           ]}
+df = pd.DataFrame(data)  # <- Define df before using it
+
+df.to_excel('回測指標.xlsx', index=False)  # 請將 '你的 Excel 文件名稱' 替換為實際的文件名稱
+'''
+
+# 繪製投資組合與大盤每日淨值
+# 假設起始投資金額為一百萬
+initial_investment = 1_000_000
+
+# 將 optimal_weights 轉換成 NumPy 陣列
+optimal_weights = np.array(optimal_weights)
+
+# 用 stock_prices 來代表從 yfinance 下載的股票價格資料
+stock_prices = yf.download(stocks, start=start_date, end=end_date)['Adj Close']
+
+# 確認 stock_prices 的列名和 optimal_weights 的順序一致
+assert stock_prices.columns.tolist() == stocks, 'data 的列名和 optimal_weights 的順序不一致'
+
+# 使用 stock_prices.values 提取 data 的 NumPy 陣列表示形式
+portfolio_value = (stock_prices.values * optimal_weights).sum(axis=1) * initial_investment / (stock_prices.iloc[0].values * optimal_weights).sum()
+
+# 計算市場投資組合每日價值
+market_value = data_2['^TWII'] * initial_investment / data_2['^TWII'].iloc[0]
+
+# 建立DataFrame
+portfolio_df = pd.DataFrame({'投資組合淨值': portfolio_value, '大盤淨值': market_value})
+
+# 繪製圖表
+plt.figure(figsize=(10, 6), dpi=200)
+plt.plot(portfolio_df.index, portfolio_df['投資組合淨值'], label='Fund Portfolio')
+plt.plot(portfolio_df.index, portfolio_df['大盤淨值'], label='Market Portfolio')
+plt.xlabel('Date')
+plt.ylabel('Value')
+plt.title('Fund Portfolio vs. Market Portfolio Value')
+plt.legend()
+plt.grid(True)  # 添加網格
+plt.show()
